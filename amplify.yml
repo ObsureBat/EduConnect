@@ -5,6 +5,7 @@ applications:
         preBuild:
           commands:
             - npm ci
+            - npm install -g vite
         build:
           commands:
             - npm run build
@@ -15,4 +16,37 @@ applications:
       cache:
         paths:
           - node_modules/**/*
+      environmentVariables:
+        - name: VITE_AWS_REGION
+          value: us-east-1
+        - name: VITE_AWS_S3_BUCKET
+          value: educonnect-files-20240408
+        - name: VITE_AWS_WEBSITE_BUCKET
+          value: educonnect-web-20240408
+        - name: VITE_AWS_DYNAMODB_GROUPS_TABLE
+          value: educonnect-groups
+        - name: VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE
+          value: educonnect-assignments
+        - name: VITE_AWS_DYNAMODB_MESSAGES_TABLE
+          value: educonnect-messages
+        - name: VITE_AWS_DYNAMODB_NOTIFICATIONS_TABLE
+          value: educonnect-notifications
+        - name: VITE_AWS_DYNAMODB_USERS_TABLE
+          value: educonnect-users
+        - name: VITE_AWS_LEX_BOT_ID
+          value: ZWAYTETHZA
+        - name: VITE_AWS_LEX_BOT_ALIAS_ID
+          value: TSTALIASID
+        - name: VITE_AWS_COGNITO_USER_POOL_ID
+          value: us-east-1_DI4QzEfeQ
+        - name: VITE_AWS_COGNITO_CLIENT_ID
+          value: 3e12tbu4bk4g6cf31funool6d7
+        - name: VITE_AWS_API_GATEWAY_URL
+          value: https://8hbcehua8g.execute-api.us-east-1.amazonaws.com
+        - name: VITE_AWS_COGNITO_DOMAIN
+          value: educonnect-auth
+        - name: VITE_AWS_REKOGNITION_ENABLED
+          value: "true"
+        - name: VITE_AWS_REKOGNITION_COLLECTION_ID
+          value: educonnect-faces-temp
     appRoot: . 
