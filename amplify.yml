@@ -1,6 +1,9 @@
 version: 1
 backend:
   phases:
+    preBuild:
+      commands:
+        - npm install -g @aws-amplify/cli
     build:
       commands:
         - amplifyPush --simple
@@ -9,8 +12,7 @@ frontend:
     preBuild:
       commands:
         - npm ci
-        - npm install -g @aws-amplify/cli
-        - amplify pull --appId d1hw4jqm1n0ffs --envName main
+        - amplify pull --appId d1hw4jqm1n0ffs --envName main --yes
         - chmod +x build.sh
         - ./build.sh
     build:
@@ -36,17 +38,12 @@ frontend:
         - key: 'X-XSS-Protection'
           value: '1; mode=block'
   environmentVariables:
-    - name: VITE_AWS_REGION
-      value: us-east-1
-    - name: VITE_AWS_S3_BUCKET
-      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_S3_BUCKET}
-    - name: VITE_AWS_DYNAMODB_TABLE
-      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_DYNAMODB_TABLE}
-    - name: VITE_AWS_COGNITO_USER_POOL_ID
-      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_USER_POOL_ID}
-    - name: VITE_AWS_COGNITO_CLIENT_ID
-      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_CLIENT_ID}
-    - name: VITE_AWS_ACCESS_KEY_ID
-      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_ACCESS_KEY_ID}
-    - name: VITE_AWS_SECRET_ACCESS_KEY
-      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_SECRET_ACCESS_KEY}
+    AMPLIFY_MONOREPO_APP_ROOT: .
+    AMPLIFY_DIFF_DEPLOY: false
+    VITE_AWS_REGION: us-east-1
+    VITE_AWS_S3_BUCKET: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_S3_BUCKET}
+    VITE_AWS_DYNAMODB_TABLE: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_DYNAMODB_TABLE}
+    VITE_AWS_COGNITO_USER_POOL_ID: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_USER_POOL_ID}
+    VITE_AWS_COGNITO_CLIENT_ID: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_CLIENT_ID}
+    VITE_AWS_ACCESS_KEY_ID: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_ACCESS_KEY_ID}
+    VITE_AWS_SECRET_ACCESS_KEY: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_SECRET_ACCESS_KEY}
