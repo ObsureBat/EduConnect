@@ -1,56 +1,47 @@
 version: 1
-applications:
-  - frontend:
-      phases:
-        preBuild:
-          commands:
-            - rm -rf node_modules package-lock.json
-            - npm install --legacy-peer-deps
-            - npm install -g vite@latest
-            - npm install glob@latest --save-dev
-            - npm install lru-cache@latest --save-dev
-            - npm audit fix --force
-        build:
-          commands:
-            - npm run build
-      artifacts:
-        baseDirectory: dist
-        files:
-          - '**/*'
-      cache:
-        paths:
-          - node_modules/**/*
-      environmentVariables:
-        - name: VITE_AWS_REGION
-          value: us-east-1
-        - name: VITE_AWS_S3_BUCKET
-          value: educonnect-files-20240408
-        - name: VITE_AWS_WEBSITE_BUCKET
-          value: educonnect-web-20240408
-        - name: VITE_AWS_DYNAMODB_GROUPS_TABLE
-          value: educonnect-groups
-        - name: VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE
-          value: educonnect-assignments
-        - name: VITE_AWS_DYNAMODB_MESSAGES_TABLE
-          value: educonnect-messages
-        - name: VITE_AWS_DYNAMODB_NOTIFICATIONS_TABLE
-          value: educonnect-notifications
-        - name: VITE_AWS_DYNAMODB_USERS_TABLE
-          value: educonnect-users
-        - name: VITE_AWS_LEX_BOT_ID
-          value: ZWAYTETHZA
-        - name: VITE_AWS_LEX_BOT_ALIAS_ID
-          value: TSTALIASID
-        - name: VITE_AWS_COGNITO_USER_POOL_ID
-          value: us-east-1_DI4QzEfeQ
-        - name: VITE_AWS_COGNITO_CLIENT_ID
-          value: 3e12tbu4bk4g6cf31funool6d7
-        - name: VITE_AWS_API_GATEWAY_URL
-          value: https://8hbcehua8g.execute-api.us-east-1.amazonaws.com
-        - name: VITE_AWS_COGNITO_DOMAIN
-          value: educonnect-auth
-        - name: VITE_AWS_REKOGNITION_ENABLED
-          value: "true"
-        - name: VITE_AWS_REKOGNITION_COLLECTION_ID
-          value: educonnect-faces-temp
-    appRoot: . 
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - chmod +x build.sh
+        - ./build.sh
+    build:
+      commands:
+        - echo "Build completed successfully!"
+  artifacts:
+    baseDirectory: dist
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+  customHeaders:
+    - pattern: '**/*'
+      headers:
+        - key: 'Strict-Transport-Security'
+          value: 'max-age=31536000; includeSubDomains'
+        - key: 'X-Content-Type-Options'
+          value: 'nosniff'
+        - key: 'X-Frame-Options'
+          value: 'SAMEORIGIN'
+        - key: 'X-XSS-Protection'
+          value: '1; mode=block'
+  environmentVariables:
+    - name: VITE_AWS_REGION
+      value: us-east-1
+    - name: VITE_AWS_S3_BUCKET
+      value: educonnect-assets
+    - name: VITE_AWS_DYNAMODB_TABLE
+      value: EduConnect
+    - name: VITE_AWS_COGNITO_USER_POOL_ID
+      value: us-east-1_xxxxxxxx
+    - name: VITE_AWS_COGNITO_CLIENT_ID
+      value: xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    - name: VITE_AWS_COGNITO_IDENTITY_POOL_ID
+      value: us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    - name: VITE_AWS_LEX_BOT_NAME
+      value: EduConnectBot
+    - name: VITE_AWS_LEX_BOT_ALIAS
+      value: prod
+    - name: VITE_AWS_LEX_BOT_ALIAS_ID
+      value: TSTALIASID 
