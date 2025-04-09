@@ -1,0 +1,29 @@
+{
+  "Parameters": [
+    {
+      "Name": "/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_ACCESS_KEY_ID",
+      "Type": "SecureString",
+      "Value": "${env.VITE_AWS_ACCESS_KEY_ID}"
+    },
+    {
+      "Name": "/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_SECRET_ACCESS_KEY",
+      "Type": "SecureString",
+      "Value": "${env.VITE_AWS_SECRET_ACCESS_KEY}"
+    },
+    {
+      "Name": "/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_ACCOUNT_ID",
+      "Type": "String",
+      "Value": "${env.VITE_AWS_ACCOUNT_ID}"
+    },
+    {
+      "Name": "/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_USER_POOL_ID",
+      "Type": "String",
+      "Value": "${env.VITE_AWS_COGNITO_USER_POOL_ID}"
+    },
+    {
+      "Name": "/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_CLIENT_ID",
+      "Type": "String",
+      "Value": "${env.VITE_AWS_COGNITO_CLIENT_ID}"
+    }
+  ]
+}

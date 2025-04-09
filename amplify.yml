@@ -1,13 +1,21 @@
 version: 1
+backend:
+  phases:
+    build:
+      commands:
+        - amplifyPush --simple
 frontend:
   phases:
     preBuild:
       commands:
+        - npm ci
+        - npm install -g @aws-amplify/cli
+        - amplify pull --appId d1hw4jqm1n0ffs --envName main
         - chmod +x build.sh
         - ./build.sh
     build:
       commands:
-        - echo "Build completed successfully!"
+        - npm run build
   artifacts:
     baseDirectory: dist
     files:
@@ -15,6 +23,7 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+      - .npm-cache/**/*
   customHeaders:
     - pattern: '**/*'
       headers:
@@ -30,18 +39,14 @@ frontend:
     - name: VITE_AWS_REGION
       value: us-east-1
     - name: VITE_AWS_S3_BUCKET
-      value: educonnect-assets
+      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_S3_BUCKET}
     - name: VITE_AWS_DYNAMODB_TABLE
-      value: EduConnect
+      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_DYNAMODB_TABLE}
     - name: VITE_AWS_COGNITO_USER_POOL_ID
-      value: us-east-1_DI4QzEfeQ
+      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_USER_POOL_ID}
     - name: VITE_AWS_COGNITO_CLIENT_ID
-      value: 3e12tbu4bk4g6cf31funool6d7
-    - name: VITE_AWS_COGNITO_IDENTITY_POOL_ID
-      value: us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    - name: VITE_AWS_LEX_BOT_NAME
-      value: EduConnectBot
-    - name: VITE_AWS_LEX_BOT_ALIAS
-      value: prod
-    - name: VITE_AWS_LEX_BOT_ALIAS_ID
-      value: TSTALIASID 
+      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_CLIENT_ID}
+    - name: VITE_AWS_ACCESS_KEY_ID
+      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_ACCESS_KEY_ID}
+    - name: VITE_AWS_SECRET_ACCESS_KEY
+      value: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_SECRET_ACCESS_KEY}
