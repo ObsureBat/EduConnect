@@ -7,6 +7,8 @@ applications:
             - rm -rf node_modules package-lock.json
             - npm install --legacy-peer-deps
             - npm install -g vite@latest
+            - npm install glob@latest --save-dev
+            - npm install lru-cache@latest --save-dev
             - npm audit fix --force
         build:
           commands:
