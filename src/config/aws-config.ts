@@ -1,19 +1,21 @@
+import { browserEnv } from './browser-env';
+
 export const awsConfig = {
-  region: import.meta.env.VITE_AWS_REGION || 'us-east-1',
+  region: browserEnv.VITE_AWS_REGION,
   credentials: {
-    accessKeyId: import.meta.env.VITE_AWS_ACCESS_KEY_ID,
-    secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY
+    accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY || ''
   },
   
   s3: {
-    bucketName: import.meta.env.VITE_AWS_S3_BUCKET || 'educonnect-file-storage',
-    websiteBucket: import.meta.env.VITE_AWS_WEBSITE_BUCKET || 'educonnect-website',
+    bucketName: browserEnv.VITE_AWS_S3_BUCKET,
+    websiteBucket: browserEnv.VITE_AWS_WEBSITE_BUCKET,
   },
   
   dynamodb: {
-    groupsTable: import.meta.env.VITE_AWS_DYNAMODB_GROUPS_TABLE || 'educonnect-groups',
-    assignmentsTable: import.meta.env.VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE || 'educonnect-assignments',
-    messagesTable: import.meta.env.VITE_AWS_DYNAMODB_MESSAGES_TABLE || 'educonnect-messages',
+    groupsTable: browserEnv.VITE_AWS_DYNAMODB_GROUPS_TABLE,
+    assignmentsTable: browserEnv.VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE,
+    messagesTable: browserEnv.VITE_AWS_DYNAMODB_MESSAGES_TABLE,
   },
   
   agora: {
@@ -34,5 +36,5 @@ export const awsConfig = {
     logStream: 'main'
   },
   
-  environment: import.meta.env.MODE || 'development'
+  environment: process.env.NODE_ENV || 'development'
 };

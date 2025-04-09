@@ -8,7 +8,8 @@ import {
   Bell,
   Settings,
   HelpCircle,
-  Activity
+  Activity,
+  Languages
 } from 'lucide-react';
 import { ScanCommand } from '@aws-sdk/client-dynamodb';
 import { getDynamoDBClient } from '../utils/aws-services';
@@ -152,6 +153,13 @@ const Sidebar = () => {
       path: '/chat',
       stat: stats.pendingMessages,
       statLabel: 'unread'
+    },
+    {
+      icon: Languages,
+      label: 'Translate',
+      path: '/translate',
+      stat: 0,
+      statLabel: ''
     }
   ];
 

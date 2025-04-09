@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { FileText, Upload, Clock, CheckCircle } from 'lucide-react';
-import { PutItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { useEffect, useState, useContext } from 'react';
+import { FileText, Upload, Clock, CheckCircle, Settings, Database, Info, CheckSquare, Bell } from 'lucide-react';
+import { PutItemCommand, ScanCommand, UpdateItemCommand, ReturnValue } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import { getDynamoDBClient, uploadFileToS3 } from '../utils/aws-services';
-import { awsConfig } from '../config/aws-config';
+import { getDynamoDBClient, uploadAssignmentToS3, createS3BucketIfNotExists, testS3Connection } from '../utils/aws-services';
+import { browserEnv } from '../config/browser-env';
 import toast from 'react-hot-toast';
 import { Dialog } from '@headlessui/react';
+import { configureS3CorsFromBrowser, getCurrentAwsConfig } from '../utils/aws-config-helper';
+import UploadProgress from '../components/UploadProgress';
 
 
 interface Assignment {
@@ -15,7 +17,9 @@ interface Assignment {
   dueDate: string;
   status: 'pending' | 'submitted';
   description: string;
-  submissionFile?: string;
+  submissionUrl?: string;
+  submittedAt?: string;
+  timestamp: string;
 }
 
 interface NewAssignment {
@@ -25,9 +29,25 @@ interface NewAssignment {
   description: string;
 }
 
+const NotificationBadge = ({ count }: { count: number }) => {
+  if (count <= 0) return null;
+  
+  return (
+    <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+      {count > 9 ? '9+' : count}
+    </div>
+  );
+};
+
 const Assignments = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingFileName, setUploadingFileName] = useState('');
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [newAssignment, setNewAssignment] = useState<NewAssignment>({
     title: '',
     course: '',
@@ -37,13 +57,22 @@ const Assignments = () => {
 
   useEffect(() => {
     fetchAssignments();
+    fetchNotifications();
+    
+    const notificationInterval = setInterval(() => {
+      fetchNotifications();
+    }, 30000);
+    
+    return () => {
+      clearInterval(notificationInterval);
+    };
   }, []);
 
   const fetchAssignments = async () => {
     try {
       const dynamoClient = getDynamoDBClient();
       const command = new ScanCommand({
-        TableName: awsConfig.dynamodb.assignmentsTable,
+        TableName: browserEnv.VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE,
       });
 
       const response = await dynamoClient.send(command);
@@ -59,6 +88,33 @@ const Assignments = () => {
     }
   };
 
+  const fetchNotifications = async () => {
+    try {
+      const dynamoClient = getDynamoDBClient();
+      const command = new ScanCommand({
+        TableName: browserEnv.VITE_AWS_DYNAMODB_NOTIFICATIONS_TABLE,
+        Limit: 10,
+      });
+
+      const response = await dynamoClient.send(command);
+      if (response.Items) {
+        const unmarshalledItems = response.Items.map(item => unmarshall(item)) as any[];
+        console.log('Fetched notifications:', unmarshalledItems);
+        
+        unmarshalledItems.sort((a, b) => {
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        });
+        
+        setNotifications(unmarshalledItems);
+        
+        const unread = unmarshalledItems.filter(item => item.read === 'false').length;
+        setUnreadNotifications(unread);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  };
+
   const openCreateModal = () => setIsCreateModalOpen(true);
   const closeCreateModal = () => {
     setIsCreateModalOpen(false);
@@ -70,6 +126,14 @@ const Assignments = () => {
     });
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewAssignment(prevState => ({
+      ...prevState,
+      [name]: value
+    }));
+  };
+
   const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -77,14 +141,16 @@ const Assignments = () => {
       const assignment: Assignment = {
         assignmentId: `assignment_${Date.now()}`,
         status: 'pending',
+        timestamp: new Date().toISOString(),
         ...newAssignment
       };
 
       const command = new PutItemCommand({
-        TableName: awsConfig.dynamodb.assignmentsTable,
+        TableName: browserEnv.VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE,
         Item: marshall(assignment)
       });
 
+      console.log('Creating assignment:', assignment);
       await dynamoClient.send(command);
       setAssignments(prev => [...prev, assignment]);
       toast.success('Assignment created successfully');
@@ -95,50 +161,193 @@ const Assignments = () => {
     }
   };
 
-  const handleSubmitAssignment = async (assignmentId: string) => {
+  const handleSubmitAssignment = async (assignmentId: string, file?: File) => {
     try {
-      const fileInput = document.getElementById(`file-${assignmentId}`) as HTMLInputElement;
-      if (!fileInput?.files?.length) {
-        toast.error('Please select a file to submit');
-        return;
+      if (!file) {
+        throw new Error('No file selected');
       }
 
-      const file = fileInput.files[0];
-      const maxSize = 10 * 1024 * 1024; // 10MB limit
-      if (file.size > maxSize) {
-        toast.error('File size must be less than 10MB');
-        return;
-      }
+      // Set upload state
+      setIsUploading(true);
+      setUploadProgress(0);
+      setUploadingFileName(file.name);
 
-      toast.loading('Submitting assignment...', { id: 'submit' });
-      const fileKey = `submissions/${assignmentId}/${Date.now()}_${file.name}`;
-      
-      await uploadFileToS3(file, fileKey);
-      
-      const dynamoClient = getDynamoDBClient();
-      const assignment = assignments.find(a => a.assignmentId === assignmentId);
-      const command = new PutItemCommand({
-        TableName: awsConfig.dynamodb.assignmentsTable,
-        Item: marshall({
-          ...assignment,
-          status: 'submitted',
-          submissionFile: fileKey,
-          submissionDate: new Date().toISOString()
-        })
+      console.log('Starting assignment submission...', {
+        assignmentId,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        bucket: browserEnv.VITE_AWS_S3_BUCKET,
+        region: browserEnv.VITE_AWS_REGION
       });
 
-      await dynamoClient.send(command);
-      setAssignments(prev => 
-        prev.map(a => 
-          a.assignmentId === assignmentId 
-            ? { ...a, status: 'submitted', submissionFile: fileKey }
-            : a
-        )
-      );
-      toast.success('Assignment submitted successfully', { id: 'submit' });
+      // Simulate progress updates 
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 5;
+        });
+      }, 500);
+
+      // Validate file size (10MB limit)
+      const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+      if (file.size > maxSize) {
+        clearInterval(progressInterval);
+        setIsUploading(false);
+        throw new Error('File size exceeds 10MB limit');
+      }
+
+      // Validate file type
+      const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      if (!allowedTypes.includes(file.type)) {
+        clearInterval(progressInterval);
+        setIsUploading(false);
+        throw new Error('Invalid file type. Only PDF and Word documents are allowed.');
+      }
+
+      // Find the assignment
+      const assignment = assignments.find(a => a.assignmentId === assignmentId);
+      if (!assignment) {
+        clearInterval(progressInterval);
+        setIsUploading(false);
+        throw new Error(`Assignment with ID ${assignmentId} not found`);
+      }
+
+      console.log('Assignment found:', assignment);
+
+      // Generate unique file key - this format will be parsed by the Lambda function
+      const timestamp = Date.now();
+      const fileKey = `assignments/${assignmentId}/${timestamp}-${file.name}`;
+      
+      console.log('Uploading file to S3 with key:', fileKey);
+      
+      // Upload the file to S3 - Lambda will handle the DynamoDB update
+      const fileUrl = await uploadAssignmentToS3(file, fileKey);
+      console.log('File uploaded successfully, URL:', fileUrl);
+      
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      
+      toast.success('Assignment submitted successfully! The status will update momentarily.');
+      
+      setTimeout(() => {
+        fetchAssignments();
+        fetchNotifications();
+        setIsUploading(false);
+      }, 3000);
+      
     } catch (error) {
       console.error('Error submitting assignment:', error);
-      toast.error('Failed to submit assignment', { id: 'submit' });
+      setIsUploading(false);
+      
+      let errorMessage = 'Failed to submit assignment';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleConfigureS3Cors = async () => {
+    try {
+      toast.loading('Configuring S3 CORS settings...');
+      const result = await configureS3CorsFromBrowser();
+      toast.dismiss();
+      toast.success(result);
+    } catch (error) {
+      toast.dismiss();
+      console.error('Error configuring S3 CORS:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to configure S3 CORS');
+    }
+  };
+
+  const handleCreateS3Bucket = async () => {
+    try {
+      toast.loading('Creating S3 bucket if it does not exist...');
+      const result = await createS3BucketIfNotExists();
+      toast.dismiss();
+      if (result) {
+        toast.success('S3 bucket verification successful or created successfully');
+      } else {
+        toast.error('Failed to create S3 bucket');
+      }
+    } catch (error) {
+      toast.dismiss();
+      console.error('Error creating S3 bucket:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to create S3 bucket');
+    }
+  };
+
+  const handleCheckAwsConfig = async () => {
+    try {
+      const configInfo = await getCurrentAwsConfig();
+      // Use a custom alert dialog that uses line breaks properly
+      alert(configInfo);
+    } catch (error) {
+      console.error('Error checking AWS config:', error);
+      toast.error('Error retrieving AWS config');
+    }
+  };
+
+  const handleTestS3Connection = async () => {
+    try {
+      toast.loading('Testing S3 connection...');
+      const result = await testS3Connection();
+      toast.dismiss();
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.dismiss();
+      console.error('Error testing S3 connection:', error);
+      toast.error(error instanceof Error ? error.message : 'Error testing S3 connection');
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId: string) => {
+    try {
+      const dynamoClient = getDynamoDBClient();
+      const command = new UpdateItemCommand({
+        TableName: browserEnv.VITE_AWS_DYNAMODB_NOTIFICATIONS_TABLE,
+        Key: marshall({
+          notificationId: notificationId,
+          timestamp: notifications.find(n => n.notificationId === notificationId)?.timestamp || ''
+        }),
+        UpdateExpression: 'SET #read = :read',
+        ExpressionAttributeNames: {
+          '#read': 'read'
+        },
+        ExpressionAttributeValues: marshall({
+          ':read': 'true'
+        })
+      });
+      
+      await dynamoClient.send(command);
+      
+      setNotifications(prev => prev.map(n => 
+        n.notificationId === notificationId ? { ...n, read: 'true' } : n
+      ));
+      setUnreadNotifications(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const toggleNotifications = () => {
+    setIsNotificationsOpen(prev => !prev);
+    
+    if (!isNotificationsOpen && unreadNotifications > 0) {
+      notifications.forEach(n => {
+        if (n.read === 'false') {
+          markNotificationAsRead(n.notificationId);
+        }
+      });
     }
   };
 
@@ -154,10 +363,11 @@ const Assignments = () => {
               <label className="block text-sm font-medium text-gray-700">Title</label>
               <input
                 type="text"
+                name="title"
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 value={newAssignment.title}
-                onChange={e => setNewAssignment(prev => ({ ...prev, title: e.target.value }))}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -165,10 +375,11 @@ const Assignments = () => {
               <label className="block text-sm font-medium text-gray-700">Course</label>
               <input
                 type="text"
+                name="course"
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 value={newAssignment.course}
-                onChange={e => setNewAssignment(prev => ({ ...prev, course: e.target.value }))}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -176,21 +387,23 @@ const Assignments = () => {
               <label className="block text-sm font-medium text-gray-700">Due Date</label>
               <input
                 type="date"
+                name="dueDate"
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 value={newAssignment.dueDate}
-                onChange={e => setNewAssignment(prev => ({ ...prev, dueDate: e.target.value }))}
+                onChange={handleInputChange}
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Description</label>
               <textarea
+                name="description"
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 rows={3}
                 value={newAssignment.description}
-                onChange={e => setNewAssignment(prev => ({ ...prev, description: e.target.value }))}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -217,15 +430,98 @@ const Assignments = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Notifications Bell */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-indigo-700">Assignments</h1>
+        <div className="relative">
+          <button 
+            onClick={toggleNotifications} 
+            className="p-2 rounded-full hover:bg-gray-100 relative"
+            aria-label="Notifications"
+          >
+            <Bell className="h-6 w-6 text-indigo-600" />
+            <NotificationBadge count={unreadNotifications} />
+          </button>
+          
+          {/* Notifications Panel */}
+          {isNotificationsOpen && (
+            <div className="absolute right-0 mt-2 w-80 bg-white rounded-md shadow-lg overflow-hidden z-20 border border-gray-200">
+              <div className="py-2 px-3 bg-indigo-50 border-b border-gray-200">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-semibold text-gray-700">Notifications</h3>
+                  <span className="text-xs text-gray-500">{notifications.length} notifications</span>
+                </div>
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-gray-500">No notifications</div>
+                ) : (
+                  <div>
+                    {notifications.map((notification) => (
+                      <div 
+                        key={notification.notificationId} 
+                        className={`p-3 border-b border-gray-100 hover:bg-gray-50 ${notification.read === 'false' ? 'bg-blue-50' : ''}`}
+                        onClick={() => markNotificationAsRead(notification.notificationId)}
+                      >
+                        <div className="flex justify-between">
+                          <span className="font-medium text-sm">{notification.title}</span>
+                          <span className="text-xs text-gray-500">
+                            {new Date(notification.timestamp).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">{notification.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Upload Progress Modal */}
+      <UploadProgress 
+        isUploading={isUploading}
+        progress={uploadProgress}
+        fileName={uploadingFileName}
+      />
+      
       <div className="flex justify-between items-center mb-8">
         <h2 className="text-2xl font-bold">Assignments</h2>
-        <button 
-          onClick={openCreateModal}
-          className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
-        >
-          <FileText className="h-5 w-5 mr-2" />
-          Create Assignment
-        </button>
+        <div className="flex space-x-2">
+          <button 
+            onClick={handleCheckAwsConfig}
+            className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+          >
+            <Info className="w-4 h-4 mr-2" />
+            Check AWS Config
+          </button>
+          <button 
+            onClick={handleTestS3Connection}
+            className="flex items-center px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+          >
+            <CheckSquare className="w-4 h-4 mr-2" />
+            Test S3 Connection
+          </button>
+          <button 
+            onClick={handleConfigureS3Cors}
+            className="flex items-center px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors duration-300"
+          >
+            <Database className="w-4 h-4 mr-2" />
+            Configure S3 CORS
+          </button>
+          <button 
+            onClick={openCreateModal}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors duration-300"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Create Assignment
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
@@ -278,18 +574,25 @@ const Assignments = () => {
                         hover:file:bg-indigo-100"
                     />
                     <button 
-                      onClick={() => handleSubmitAssignment(assignment.assignmentId)}
+                      onClick={() => {
+                        const fileInput = document.getElementById(`file-${assignment.assignmentId}`) as HTMLInputElement;
+                        if (!fileInput?.files?.length) {
+                          toast.error('Please select a file to submit');
+                          return;
+                        }
+                        handleSubmitAssignment(assignment.assignmentId, fileInput.files[0]);
+                      }}
                       className="mt-2 flex items-center px-4 py-2 bg-indigo-100 text-indigo-600 rounded-md hover:bg-indigo-200 transition-colors"
                     >
-                      <Upload className="h-5 w-5 mr-2" />
-                      Submit Assignment
+                      <Upload className="w-4 h-4 mr-2" />
+                      Submit
                     </button>
                   </div>
                 )}
                 
-                {assignment.status === 'submitted' && assignment.submissionFile && (
+                {assignment.status === 'submitted' && assignment.submissionUrl && (
                   <div className="mt-4 text-sm text-gray-500">
-                    Submitted file: {assignment.submissionFile}
+                    Submitted file: {assignment.submissionUrl}
                   </div>
                 )}
               </div>

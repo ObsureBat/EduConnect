@@ -3,7 +3,7 @@ import { Users, Plus, Search, Send, Upload } from 'lucide-react';
 import { PutItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { getDynamoDBClient, uploadFileToS3 } from '../utils/aws-services';
-import { awsConfig } from '../config/aws-config';
+import { browserEnv } from '../config/browser-env';
 import toast from 'react-hot-toast';
 
 interface Group {
@@ -14,6 +14,7 @@ interface Group {
   image?: string;
   messages?: Message[];
   files?: SharedFile[];
+  timestamp: string;
 }
 
 interface Message {
@@ -54,7 +55,7 @@ const Groups = () => {
     try {
       const dynamoClient = getDynamoDBClient();
       const command = new ScanCommand({
-        TableName: awsConfig.dynamodb.groupsTable,
+        TableName: browserEnv.VITE_AWS_DYNAMODB_GROUPS_TABLE,
       });
 
       const response = await dynamoClient.send(command);
@@ -82,11 +83,12 @@ const Groups = () => {
         description: newGroup.description,
         members: 1,
         messages: [],
-        files: []
+        files: [],
+        timestamp: new Date().toISOString()
       };
 
       const command = new PutItemCommand({
-        TableName: awsConfig.dynamodb.groupsTable,
+        TableName: browserEnv.VITE_AWS_DYNAMODB_GROUPS_TABLE,
         Item: marshall(newGroupData)
       });
 
@@ -119,7 +121,7 @@ const Groups = () => {
 
       const dynamoClient = getDynamoDBClient();
       const command = new PutItemCommand({
-        TableName: awsConfig.dynamodb.groupsTable,
+        TableName: browserEnv.VITE_AWS_DYNAMODB_GROUPS_TABLE,
         Item: marshall(updatedGroup)
       });
 
@@ -143,12 +145,12 @@ const Groups = () => {
     try {
       const file = event.target.files[0];
       const fileKey = `groups/${selectedGroup.groupId}/files/${file.name}`;
-      await uploadFileToS3(file, fileKey);
+      const fileUrl = await uploadFileToS3(file, fileKey);
 
       const newFile: SharedFile = {
         id: Date.now().toString(),
         name: file.name,
-        url: fileKey,
+        url: fileUrl,
         uploadedBy: 'current-user', // Replace with actual user ID
         timestamp: new Date().toISOString()
       };
@@ -160,7 +162,7 @@ const Groups = () => {
 
       const dynamoClient = getDynamoDBClient();
       const command = new PutItemCommand({
-        TableName: awsConfig.dynamodb.groupsTable,
+        TableName: browserEnv.VITE_AWS_DYNAMODB_GROUPS_TABLE,
         Item: marshall(updatedGroup)
       });
 
