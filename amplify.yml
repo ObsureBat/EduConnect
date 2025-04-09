@@ -5,8 +5,9 @@ applications:
         preBuild:
           commands:
             - rm -rf node_modules package-lock.json
-            - npm install
-            - npm install -g vite
+            - npm install --legacy-peer-deps
+            - npm install -g vite@latest
+            - npm audit fix --force
         build:
           commands:
             - npm run build
