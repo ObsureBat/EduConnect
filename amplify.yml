@@ -34,9 +34,9 @@ frontend:
     - name: VITE_AWS_DYNAMODB_TABLE
       value: EduConnect
     - name: VITE_AWS_COGNITO_USER_POOL_ID
-      value: us-east-1_xxxxxxxx
+      value: us-east-1_DI4QzEfeQ
     - name: VITE_AWS_COGNITO_CLIENT_ID
-      value: xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      value: 3e12tbu4bk4g6cf31funool6d7
     - name: VITE_AWS_COGNITO_IDENTITY_POOL_ID
       value: us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     - name: VITE_AWS_LEX_BOT_NAME

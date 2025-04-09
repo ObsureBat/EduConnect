@@ -27,11 +27,7 @@ rm -rf node_modules package-lock.json || handle_error "Failed to clean up previo
 
 # Install dependencies
 log "Installing dependencies..."
-npm install --no-package-lock || handle_error "Failed to install dependencies"
-
-# Install Vite globally
-log "Installing Vite..."
-npm install -g vite || handle_error "Failed to install Vite"
+npm ci || handle_error "Failed to install dependencies"
 
 # Build the application
 log "Building application..."
