@@ -1,23 +1,14 @@
 version: 1
-backend:
-  phases:
-    preBuild:
-      commands:
-        - npm install -g @aws-amplify/cli
-    build:
-      commands:
-        - amplifyPush --simple
 frontend:
   phases:
     preBuild:
       commands:
         - npm ci
-        - amplify pull --appId d1hw4jqm1n0ffs --envName main --yes
         - chmod +x build.sh
         - ./build.sh
     build:
       commands:
-        - npm run build
+        - echo "Build completed successfully!"
   artifacts:
     baseDirectory: dist
     files:
@@ -38,12 +29,15 @@ frontend:
         - key: 'X-XSS-Protection'
           value: '1; mode=block'
   environmentVariables:
-    AMPLIFY_MONOREPO_APP_ROOT: .
-    AMPLIFY_DIFF_DEPLOY: false
-    VITE_AWS_REGION: us-east-1
-    VITE_AWS_S3_BUCKET: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_S3_BUCKET}
-    VITE_AWS_DYNAMODB_TABLE: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_DYNAMODB_TABLE}
-    VITE_AWS_COGNITO_USER_POOL_ID: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_USER_POOL_ID}
-    VITE_AWS_COGNITO_CLIENT_ID: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_COGNITO_CLIENT_ID}
-    VITE_AWS_ACCESS_KEY_ID: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_ACCESS_KEY_ID}
-    VITE_AWS_SECRET_ACCESS_KEY: ${SSM:/amplify/d1hw4jqm1n0ffs/main/VITE_AWS_SECRET_ACCESS_KEY}
+    - name: VITE_AWS_REGION
+      value: us-east-1
+    - name: VITE_AWS_S3_BUCKET
+      value: educonnect-assets
+    - name: VITE_AWS_DYNAMODB_TABLE
+      value: EduConnect
+    - name: VITE_AWS_COGNITO_USER_POOL_ID
+      value: us-east-1_DI4QzEfeQ
+    - name: VITE_AWS_COGNITO_CLIENT_ID
+      value: 3e12tbu4bk4g6cf31funool6d7
+    - name: VITE_AWS_COGNITO_IDENTITY_POOL_ID
+      value: us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
