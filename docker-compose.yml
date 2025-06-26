@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  app:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,6 +9,57 @@ services:
       - "80:80"
     environment:
       - NODE_ENV=production
+      - VITE_APP_TITLE=EduConnect
+      - VITE_AWS_REGION=${VITE_AWS_REGION}
+      - VITE_AWS_ACCESS_KEY_ID=${VITE_AWS_ACCESS_KEY_ID}
+      - VITE_AWS_SECRET_ACCESS_KEY=${VITE_AWS_SECRET_ACCESS_KEY}
+      - VITE_AWS_ACCOUNT_ID=${VITE_AWS_ACCOUNT_ID}
     volumes:
-      - .env:/usr/share/nginx/html/.env
-    restart: unless-stopped 
+      - nginx_logs:/var/log/nginx
+      - .env.production:/usr/share/nginx/html/.env.production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - educonnect-network
+
+  monitoring:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    networks:
+      - educonnect-network
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    depends_on:
+      - monitoring
+    networks:
+      - educonnect-network
+
+volumes:
+  nginx_logs:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  educonnect-network:
+    driver: bridge

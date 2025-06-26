@@ -55,7 +55,6 @@ export const AISupport: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isBotConfigured, setIsBotConfigured] = useState(true);
   const [useDemoMode, setUseDemoMode] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -74,9 +73,8 @@ export const AISupport: React.FC = () => {
     const botId = browserEnv.VITE_AWS_LEX_BOT_ID;
     const botAliasId = browserEnv.VITE_AWS_LEX_BOT_ALIAS_ID;
     
-    if (!botId || !botAliasId) {
-      console.warn('Lex bot is not configured properly. Using demo mode.');
-      setIsBotConfigured(false);
+    if (!botId || !botAliasId || botId === 'ZWAYTETHZA' || botAliasId === 'TSTALIASID') {
+      console.warn('Lex bot is not configured properly. Using demo mode. Please configure a valid Lex bot ID and alias ID.');
       setUseDemoMode(true);
     }
   }, []);
@@ -172,6 +170,11 @@ export const AISupport: React.FC = () => {
         const botId = browserEnv.VITE_AWS_LEX_BOT_ID;
         const botAliasId = browserEnv.VITE_AWS_LEX_BOT_ALIAS_ID;
         const localeId = 'en_US';
+        
+        // Double check bot configuration before making the API call
+        if (!botId || !botAliasId || botId === 'ZWAYTETHZA' || botAliasId === 'TSTALIASID') {
+          throw new Error('Invalid Lex bot configuration');
+        }
         
         const command = new RecognizeTextCommand({
           botId,
@@ -429,4 +432,4 @@ export const AISupport: React.FC = () => {
   );
 };
 
-export default AISupport; 
+export default AISupport;

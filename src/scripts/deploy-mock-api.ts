@@ -95,7 +95,7 @@ const mockResponses = {
       senderId: "$request.body.senderId",
       senderName: "$request.body.senderName",
       content: "$request.body.content",
-      contentType: "$request.body.contentType" || "text",
+      contentType: "${$request.body.contentType ? $request.body.contentType : 'text'}",
       read: false,
       message: "Message sent successfully"
     })

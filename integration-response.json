@@ -1,0 +1,7 @@
+{
+    "responseParameters": {
+        "method.response.header.Access-Control-Allow-Origin": "'*'"
+    },
+    "selectionPattern": "",
+    "statusCode": "200"
+} 

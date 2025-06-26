@@ -1,21 +1,23 @@
 import { browserEnv } from '../config/browser-env';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { CognitoIdentityClient } from '@aws-sdk/client-cognito-identity';
+import { fromCognitoIdentityPool } from '@aws-sdk/credential-provider-cognito-identity';
 
 const s3Client = new S3Client({
   region: browserEnv.VITE_AWS_REGION,
-  credentials: {
-    accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY || ''
-  }
+  credentials: fromCognitoIdentityPool({
+    client: new CognitoIdentityClient({ region: browserEnv.VITE_AWS_REGION }),
+    identityPoolId: browserEnv.VITE_AWS_COGNITO_USER_POOL_ID ?? ''
+  })
 });
 
 const dynamoClient = new DynamoDBClient({
   region: browserEnv.VITE_AWS_REGION,
-  credentials: {
-    accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY || ''
-  }
+  credentials: fromCognitoIdentityPool({
+    client: new CognitoIdentityClient({ region: browserEnv.VITE_AWS_REGION }),
+    identityPoolId: browserEnv.VITE_AWS_COGNITO_USER_POOL_ID ?? ''
+  })
 });
 
 export const uploadFile = async (file: File, key: string): Promise<string> => {
@@ -49,4 +51,4 @@ export const deleteFile = async (key: string): Promise<void> => {
   await s3Client.send(command);
 };
 
-export { dynamoClient }; 
+export { dynamoClient };

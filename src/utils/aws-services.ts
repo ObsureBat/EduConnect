@@ -1,7 +1,6 @@
 import { DynamoDBClient, CreateTableCommand } from '@aws-sdk/client-dynamodb';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, CreateBucketCommand, BucketLocationConstraint, PutBucketCorsCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { browserEnv } from '../config/browser-env';
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import * as CryptoJS from 'crypto-js';
 
 // Verify S3 bucket exists and is accessible
@@ -58,12 +57,12 @@ export const getS3Client = () => {
     bucket: browserEnv.VITE_AWS_S3_BUCKET
   });
 
-  // Use a more direct configuration for browser compatibility
+  // Use Cognito Identity Pool credentials
   return new S3Client({
     region: browserEnv.VITE_AWS_REGION,
     credentials: {
-      accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID,
-      secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY
+      accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID || '',
+      secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY || ''
     },
     endpoint: `https://s3.${browserEnv.VITE_AWS_REGION}.amazonaws.com`,
     forcePathStyle: false

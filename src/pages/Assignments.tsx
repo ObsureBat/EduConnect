@@ -224,20 +224,49 @@ const Assignments = () => {
       
       console.log('Uploading file to S3 with key:', fileKey);
       
-      // Upload the file to S3 - Lambda will handle the DynamoDB update
+      // Upload the file to S3
       const fileUrl = await uploadAssignmentToS3(file, fileKey);
       console.log('File uploaded successfully, URL:', fileUrl);
+      
+      // Update DynamoDB record
+      const dynamoClient = getDynamoDBClient();
+      const updatedAssignment = {
+        ...assignment,
+        status: 'submitted',
+        submissionUrl: fileUrl,
+        submittedAt: new Date().toISOString()
+      };
+      
+      const updateCommand = new PutItemCommand({
+        TableName: browserEnv.VITE_AWS_DYNAMODB_ASSIGNMENTS_TABLE,
+        Item: marshall(updatedAssignment)
+      });
+      
+      await dynamoClient.send(updateCommand);
+      console.log('DynamoDB record updated successfully');
       
       clearInterval(progressInterval);
       setUploadProgress(100);
       
-      toast.success('Assignment submitted successfully! The status will update momentarily.');
+      // Update local state
+      setAssignments(prev => prev.map(a => {
+        if (a.assignmentId === assignmentId) {
+          return {
+            ...a,
+            status: 'submitted' as const,
+            submissionUrl: updatedAssignment.submissionUrl,
+            submittedAt: updatedAssignment.submittedAt
+          };
+        }
+        return a;
+      }));
+
+      toast.success('Assignment submitted successfully!');
+      setIsUploading(false);
       
-      setTimeout(() => {
-        fetchAssignments();
-        fetchNotifications();
-        setIsUploading(false);
-      }, 3000);
+      // Fetch latest data
+      fetchAssignments();
+      fetchNotifications();
       
     } catch (error) {
       console.error('Error submitting assignment:', error);
@@ -552,54 +581,34 @@ const Assignments = () => {
                       <Clock className="h-5 w-5 mr-2" />
                       <span>Due: {assignment.dueDate}</span>
                     </div>
-                    {assignment.status === 'submitted' && (
+                    {assignment.status === 'submitted' ? (
                       <div className="flex items-center text-green-600">
                         <CheckCircle className="h-5 w-5 mr-2" />
-                        <span>Submitted</span>
+                        <span>Submitted on {new Date(assignment.submittedAt || '').toLocaleDateString()}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center">
+                        <label htmlFor={`file-upload-${assignment.assignmentId}`} className="cursor-pointer bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors flex items-center">
+                          <Upload className="h-5 w-5 mr-2" />
+                          Submit Assignment
+                        </label>
+                        <input
+                          id={`file-upload-${assignment.assignmentId}`}
+                          type="file"
+                          className="hidden"
+                          onChange={(e) => handleSubmitAssignment(assignment.assignmentId, e.target.files?.[0])}
+                          accept=".pdf,.doc,.docx"
+                        />
                       </div>
                     )}
                   </div>
                 </div>
-                
-                {assignment.status === 'pending' && (
-                  <div className="mt-4">
-                    <input
-                      type="file"
-                      id={`file-${assignment.assignmentId}`}
-                      className="block w-full text-sm text-gray-500
-                        file:mr-4 file:py-2 file:px-4
-                        file:rounded-full file:border-0
-                        file:text-sm file:font-semibold
-                        file:bg-indigo-50 file:text-indigo-700
-                        hover:file:bg-indigo-100"
-                    />
-                    <button 
-                      onClick={() => {
-                        const fileInput = document.getElementById(`file-${assignment.assignmentId}`) as HTMLInputElement;
-                        if (!fileInput?.files?.length) {
-                          toast.error('Please select a file to submit');
-                          return;
-                        }
-                        handleSubmitAssignment(assignment.assignmentId, fileInput.files[0]);
-                      }}
-                      className="mt-2 flex items-center px-4 py-2 bg-indigo-100 text-indigo-600 rounded-md hover:bg-indigo-200 transition-colors"
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Submit
-                    </button>
-                  </div>
-                )}
-                
-                {assignment.status === 'submitted' && assignment.submissionUrl && (
-                  <div className="mt-4 text-sm text-gray-500">
-                    Submitted file: {assignment.submissionUrl}
-                  </div>
-                )}
               </div>
             </div>
           ))
         )}
       </div>
+
       <CreateAssignmentModal />
     </div>
   );

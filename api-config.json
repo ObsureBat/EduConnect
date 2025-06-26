@@ -1,0 +1,7 @@
+{
+    "name": "EduConnectAPI",
+    "description": "API for EduConnect video meetings",
+    "endpointConfiguration": {
+        "types": ["EDGE"]
+    }
+} 

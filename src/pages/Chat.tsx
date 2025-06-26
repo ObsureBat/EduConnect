@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Phone, Video, Mic, MicOff, VideoOff, X, Activity, Users, AlertTriangle } from 'lucide-react';
+import { Send, Phone, Video, Mic, MicOff, VideoOff, X, Activity, Users, AlertTriangle, Share2 } from 'lucide-react';
 import { PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { getDynamoDBClient } from '../utils/aws-services';
 import { browserEnv } from '../config/browser-env';
 import toast from 'react-hot-toast';
-import { JitsiMeeting } from '@jitsi/react-sdk';
+import VideoCall from '../components/VideoCall';
 import { 
   captureVideoFrame, 
   analyzeFace, 
@@ -22,23 +22,6 @@ interface FaceAnalysisResult {
   error?: string;
 }
 
-interface Message {
-  messageId: string;
-  senderId: string;
-  receiverId: string;
-  content: string;
-  timestamp: string;
-  read: boolean;
-}
-
-interface ChatUser {
-  userId: string;
-  name: string;
-  avatar?: string;
-  online: boolean;
-}
-
-// Interface for face analysis results
 interface FaceAnalysis {
   emotion: {
     dominant: string;
@@ -52,6 +35,21 @@ interface FaceAnalysis {
   };
 }
 
+interface Message {
+  messageId: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  timestamp: string;
+  read: boolean;
+}
+
+interface ChatUser {
+  userId: string;
+  name: string;
+  online: boolean;
+}
+
 const Chat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -63,15 +61,15 @@ const Chat = () => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // References for Rekognition integration
-  const jitsiApiRef = useRef<any>(null);
-  
   // Face analysis state
   const [faceAnalysis, setFaceAnalysis] = useState<FaceAnalysis | null>(null);
   const [isAnalysisEnabled, setIsAnalysisEnabled] = useState(false);
   const [consecutiveErrors, setConsecutiveErrors] = useState(0);
   const [faceAnalysisInterval, setFaceAnalysisInterval] = useState<number | null>(null);
-  
+
+  // Add meeting ID state
+  const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
+
   // Mock user for demo purposes - in a real app, this would come from authentication
   const currentUser: ChatUser = {
     userId: 'user_1',
@@ -120,81 +118,26 @@ const Chat = () => {
   };
 
   const fetchMessages = async () => {
+    if (!selectedUser) return;
+    
     try {
-      if (!selectedUser) return;
-      
       const dynamoClient = getDynamoDBClient();
-      
-      // First query - messages sent by current user to selected user
-      const sentCommand = new QueryCommand({
+      const command = new QueryCommand({
         TableName: browserEnv.VITE_AWS_DYNAMODB_MESSAGES_TABLE,
-        KeyConditionExpression: 'senderId = :senderId AND receiverId = :receiverId',
+        KeyConditionExpression: 'receiverId = :receiverId',
         ExpressionAttributeValues: marshall({
-          ':senderId': currentUser.userId,
-          ':receiverId': selectedUser.userId
-        })
-      });
-      
-      // Second query - messages received by current user from selected user
-      const receivedCommand = new QueryCommand({
-        TableName: browserEnv.VITE_AWS_DYNAMODB_MESSAGES_TABLE,
-        KeyConditionExpression: 'senderId = :senderId AND receiverId = :receiverId',
-        ExpressionAttributeValues: marshall({
-          ':senderId': selectedUser.userId,
           ':receiverId': currentUser.userId
         })
       });
       
-      try {
-        const [sentMessages, receivedMessages] = await Promise.all([
-          dynamoClient.send(sentCommand),
-          dynamoClient.send(receivedCommand)
-        ]);
-        
-        const sent = sentMessages.Items ? sentMessages.Items.map(item => unmarshall(item)) : [];
-        const received = receivedMessages.Items ? receivedMessages.Items.map(item => unmarshall(item)) : [];
-        
-        // Combine and sort by timestamp
-        const allMessages = [...sent, ...received].sort((a, b) => {
-          return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-        });
-        
-        setMessages(allMessages as Message[]);
-      } catch (queryError) {
-        console.error('DynamoDB query error:', queryError);
-        
-        // Show a more user-friendly message
-        toast.error('Could not load messages. Using mock data instead.');
-        
-        // Fallback to mock messages for demo purposes
-        setMessages([
-          {
-            messageId: 'mock_1',
-            senderId: currentUser.userId,
-            receiverId: selectedUser.userId,
-            content: 'Hello! This is a demo message.',
-            timestamp: new Date(Date.now() - 60000).toISOString(),
-            read: true
-          },
-          {
-            messageId: 'mock_2',
-            senderId: selectedUser.userId,
-            receiverId: currentUser.userId,
-            content: 'Hey there! This is a demo reply.',
-            timestamp: new Date().toISOString(),
-            read: false
-          }
-        ]);
+      const response = await dynamoClient.send(command);
+      if (response.Items) {
+        const fetchedMessages = response.Items.map(item => unmarshall(item) as Message);
+        setMessages(fetchedMessages);
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
-      toast.error('Failed to fetch messages');
     }
-  };
-
-  const handleSelectUser = (user: ChatUser) => {
-    setSelectedUser(user);
-    fetchMessages();
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -233,42 +176,39 @@ const Chat = () => {
   };
 
   const startCall = (isVideo: boolean) => {
-    if (!selectedUser) return;
+    if (!selectedUser) {
+      toast.error('Please select a user to call');
+      return;
+    }
+
+    const newMeetingId = `${currentUser.userId}_${selectedUser.userId}_${Date.now()}`;
+    console.log('Starting new call with ID:', newMeetingId);
     
-    setIsVideoCall(isVideo);
     setIsCallActive(true);
-    setIsMuted(false);
-    setIsVideoOff(false);
-    
-    // Reset face analysis state when starting a call
-    setFaceAnalysis(null);
-    setIsAnalysisEnabled(false);
+    setIsVideoCall(isVideo);
+    setCurrentMeetingId(newMeetingId);
+    toast.success(isVideo ? 'Starting video call...' : 'Starting audio call...');
   };
 
   const endCall = () => {
+    console.log('Ending call:', currentMeetingId);
     setIsCallActive(false);
+    setIsVideoCall(false);
+    setIsMuted(false);
+    setIsVideoOff(false);
+    setCurrentMeetingId(null);
     stopFaceAnalysis();
+    toast.success('Call ended');
   };
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
-    
-    // Mute/unmute in Jitsi API if available
-    if (jitsiApiRef.current) {
-      jitsiApiRef.current.executeCommand('toggleAudio');
-    }
   };
 
   const toggleVideo = () => {
     setIsVideoOff(!isVideoOff);
-    
-    // Toggle video in Jitsi API if available
-    if (jitsiApiRef.current) {
-      jitsiApiRef.current.executeCommand('toggleVideo');
-    }
   };
-  
-  // Toggle face analysis
+
   const toggleFaceAnalysis = () => {
     if (isAnalysisEnabled) {
       stopFaceAnalysis();
@@ -289,34 +229,12 @@ const Chat = () => {
       }
       
       setIsAnalysisEnabled(true);
-      
-      // First check if the Jitsi meeting is properly loaded
-      if (!jitsiApiRef.current) {
-        toast.error('Please wait for the call to initialize fully before enabling face analysis');
-        setTimeout(() => {
-          if (jitsiApiRef.current) {
-            startFaceAnalysis();
-            toast.success('Face analysis enabled');
-          } else {
-            setIsAnalysisEnabled(false);
-            toast.error('Could not initialize face analysis - meeting not ready');
-          }
-        }, 2000);
-      } else {
-        startFaceAnalysis();
-        toast.success('Face analysis enabled');
-      }
+      startFaceAnalysis();
+      toast.success('Face analysis enabled');
     }
   };
-  
-  // Start face analysis process
-  const startFaceAnalysis = () => {
-    if (!jitsiApiRef.current) {
-      toast.error('Cannot start face analysis: Video call not initialized');
-      setIsAnalysisEnabled(false);
-      return;
-    }
 
+  const startFaceAnalysis = () => {
     if (!isAnalysisEnabled) return;
     
     console.log('Starting face analysis');
@@ -325,17 +243,17 @@ const Chat = () => {
     
     // Set interval to analyze faces every 3 seconds
     const intervalId = window.setInterval(async () => {
-      if (!isAnalysisEnabled || !jitsiApiRef.current) {
+      if (!isAnalysisEnabled) {
         clearInterval(intervalId);
         return;
       }
       
       try {
-        // Get video element from Jitsi
-        const videoElement = document.querySelector('#largeVideo') as HTMLVideoElement;
+        // Get video element from the local video component
+        const videoElement = document.querySelector('video') as HTMLVideoElement;
         
         // Capture video frame
-        const base64Image = await captureVideoFrame(videoElement, jitsiApiRef.current);
+        const base64Image = await captureVideoFrame(videoElement);
         
         if (!base64Image) {
           consecutiveErrors++;
@@ -419,8 +337,6 @@ const Chat = () => {
           toast.error('Face analysis failed. Please try again later.');
           setIsAnalysisEnabled(false);
           clearInterval(intervalId);
-          
-          // Keep the last valid results visible rather than clearing them
         }
       }
     }, 3000); // Analyze every 3 seconds
@@ -428,8 +344,7 @@ const Chat = () => {
     // Save interval ID for cleanup
     setFaceAnalysisInterval(intervalId);
   };
-  
-  // Stop face analysis process
+
   const stopFaceAnalysis = useCallback(() => {
     console.log('Stopping face analysis');
     if (faceAnalysisInterval) {
@@ -444,8 +359,7 @@ const Chat = () => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  
-  // Helper function to get emotion emoji
+
   const getEmotionEmoji = (emotion: string) => {
     const emotionEmojis: Record<string, string> = {
       'happy': '😊',
@@ -463,28 +377,88 @@ const Chat = () => {
     return emotionEmojis[emotion] || '❓';
   };
 
-  return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Users sidebar */}
-      <div className="w-1/4 bg-white border-r border-gray-200 p-4 overflow-y-auto shadow-sm">
-        <h2 className="text-xl font-semibold mb-6 text-gray-800">Contacts</h2>
+  // Add function to join existing call
+  const joinExistingCall = (meetingId: string) => {
+    if (!meetingId) {
+      toast.error('Invalid meeting ID');
+      return;
+    }
+
+    setIsCallActive(true);
+    setIsVideoCall(true);
+    setCurrentMeetingId(meetingId);
+    toast.success('Joining video call...');
+  };
+
+  // Add function to handle shared meeting links
+  useEffect(() => {
+    const handleMeetingLink = () => {
+      // Check URL for meeting ID parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const meetingId = urlParams.get('meetingId');
+      
+      if (meetingId && !isCallActive) {
+        console.log('Found meeting ID in URL:', meetingId);
         
-        <div className="space-y-2">
+        // If we have a meeting ID but no selected user, select the first available user
+        if (!selectedUser && users.length > 0) {
+          console.log('Selecting first available user:', users[0]);
+          setSelectedUser(users[0]);
+        }
+        
+        joinExistingCall(meetingId);
+        
+        // Remove the meetingId from the URL without refreshing the page
+        const newUrl = window.location.pathname;
+        window.history.pushState({}, '', newUrl);
+      }
+    };
+
+    handleMeetingLink();
+  }, [selectedUser, users, isCallActive]);
+
+  const handleShare = async () => {
+    if (!currentMeetingId) {
+      toast.error('No active meeting to share');
+      return;
+    }
+    
+    // Create meeting URL with ID
+    const meetingUrl = `${window.location.protocol}//${window.location.host}/chat?meetingId=${encodeURIComponent(currentMeetingId)}`;
+    console.log('Sharing meeting URL:', meetingUrl);
+    
+    try {
+      await navigator.clipboard.writeText(meetingUrl);
+      toast.success('Meeting link copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy meeting link:', err);
+      toast.error('Failed to copy meeting link');
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-100">
+      {/* Sidebar */}
+      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-200">
+          <h1 className="text-xl font-semibold text-gray-800">Chats</h1>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto">
           {users.map(user => (
-            <div 
+            <div
               key={user.userId}
-              className={`
-                p-3 rounded-lg flex items-center cursor-pointer transition-colors duration-200
-                ${selectedUser?.userId === user.userId ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-gray-50'}
-              `}
-              onClick={() => handleSelectUser(user)}
+              className={`p-4 flex items-center cursor-pointer hover:bg-gray-50 ${
+                selectedUser?.userId === user.userId ? 'bg-indigo-50' : ''
+              }`}
+              onClick={() => setSelectedUser(user)}
             >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-medium shadow-sm mr-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white text-lg font-medium shadow-sm mr-4">
                 {user.name.charAt(0)}
               </div>
-              <div className="flex-1">
+              <div>
                 <div className="font-medium text-gray-800">{user.name}</div>
-                <div className="text-xs text-gray-500 flex items-center mt-1">
+                <div className="text-sm text-gray-500 flex items-center">
                   <span className={`w-2 h-2 rounded-full mr-2 ${user.online ? 'bg-green-500' : 'bg-gray-300'}`}></span>
                   {user.online ? 'Online' : 'Offline'}
                 </div>
@@ -494,7 +468,7 @@ const Chat = () => {
         </div>
       </div>
 
-      {/* Chat content */}
+      {/* Main chat area */}
       <div className="flex-1 flex flex-col">
         {selectedUser ? (
           <>
@@ -511,66 +485,48 @@ const Chat = () => {
                     {selectedUser.online ? 'Online' : 'Offline'}
                   </div>
                 </div>
-            </div>
+              </div>
 
               <div className="flex space-x-3">
-              <button 
+                <button 
                   className="p-3 rounded-full hover:bg-gray-100 transition-colors duration-200"
                   onClick={() => startCall(false)}
                   disabled={isCallActive}
-              >
+                >
                   <Phone className="h-5 w-5 text-indigo-600" />
-              </button>
-              <button 
+                </button>
+                <button 
                   className="p-3 rounded-full hover:bg-gray-100 transition-colors duration-200"
                   onClick={() => startCall(true)}
                   disabled={isCallActive}
-              >
+                >
                   <Video className="h-5 w-5 text-indigo-600" />
-              </button>
+                </button>
               </div>
             </div>
             
             {/* Messages area */}
-            <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
-              {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-gray-500">
-                  <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-                    <Send className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <div className="text-md">No messages yet</div>
-                  <div className="text-sm mt-2">Send a message to start the conversation</div>
-                </div>
-              ) : (
-                <div className="space-y-4 max-w-3xl mx-auto">
-                  {messages.map((message) => (
-                    <div 
-                      key={message.messageId}
-                      className={`flex ${message.senderId === currentUser.userId ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div 
-                        className={`
-                          max-w-xs sm:max-w-md md:max-w-lg rounded-2xl p-4 
-                          ${message.senderId === currentUser.userId 
-                            ? 'bg-indigo-600 text-white rounded-tr-none shadow-md' 
-                            : 'bg-white text-gray-800 rounded-tl-none shadow-sm border border-gray-200'}
-                        `}
-                      >
-                        <div>{message.content}</div>
-                        <div 
-                          className={`
-                            text-xs mt-1 
-                            ${message.senderId === currentUser.userId ? 'text-indigo-100' : 'text-gray-500'}
-                          `}
-                        >
-                          {formatTime(message.timestamp)}
-                        </div>
-                      </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {messages.map(message => (
+                <div
+                  key={message.messageId}
+                  className={`flex ${message.senderId === currentUser.userId ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                      message.senderId === currentUser.userId
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-gray-800'
+                    }`}
+                  >
+                    <div className="text-sm">{message.content}</div>
+                    <div className="text-xs mt-1 opacity-70">
+                      {formatTime(message.timestamp)}
                     </div>
-                  ))}
-                  <div ref={messagesEndRef}></div>
+                  </div>
                 </div>
-              )}
+              ))}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Input area */}
@@ -583,12 +539,12 @@ const Chat = () => {
                   placeholder="Type a message..."
                   className="flex-1 p-3 border border-gray-300 rounded-l-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
-              <button 
+                <button 
                   type="submit"
                   className="p-3 bg-indigo-600 text-white rounded-r-xl hover:bg-indigo-700 transition-colors duration-200"
-              >
+                >
                   <Send className="h-5 w-5" />
-              </button>
+                </button>
               </form>
             </div>
           </>
@@ -617,8 +573,8 @@ const Chat = () => {
                   <div className="text-sm text-gray-500">
                     {isVideoCall ? 'Video Call' : 'Audio Call'}
                   </div>
-            </div>
-        </div>
+                </div>
+              </div>
               <div className="flex items-center space-x-4">
                 {/* Face analysis toggle button */}
                 {isVideoCall && (
@@ -634,155 +590,37 @@ const Chat = () => {
                     <span className="ml-2 text-sm">{isAnalysisEnabled ? "Analyzing" : "Analyze"}</span>
                   </button>
                 )}
-          <button 
+                <button 
                   onClick={endCall}
                   className="p-3 rounded-full hover:bg-gray-200 transition-colors duration-200"
-          >
+                >
                   <X className="h-5 w-5 text-red-600" />
-          </button>
-        </div>
-      </div>
+                </button>
+              </div>
+            </div>
 
             <div className="flex-1 relative">
               {isVideoCall ? (
-                <div className="h-full w-full">
-                  <JitsiMeeting
-                    domain="meet.jit.si"
-                    roomName={`${currentUser.userId}_${selectedUser?.userId}_${Date.now()}`}
-                    configOverwrite={{
-                      startWithAudioMuted: isMuted,
-                      startWithVideoMuted: isVideoOff,
-                      disableModeratorIndicator: true,
-                      enableClosePage: false,
-                      prejoinPageEnabled: false,
-                      disableDeepLinking: true,
-                      // Enable additional permissions needed for face analysis
-                      userInfo: {
-                        displayName: currentUser.name
-                      },
-                      p2p: {
-                        enabled: true
-                      },
-                      analytics: {
-                        disabled: true
-                      },
-                      // Request camera permissions immediately
-                      startScreenSharing: false,
-                      enableWelcomePage: false,
-                      disableSimulcast: false,
-                      enableNoisyMicDetection: true,
-                      // Define which buttons should appear in the toolbar
-                      toolbarButtons: [
-                        'microphone', 'camera', 'closedcaptions', 'desktop', 
-                        'fullscreen', 'fodeviceselection', 'hangup', 'profile', 
-                        'chat', 'recording', 'livestreaming', 'etherpad', 
-                        'sharedvideo', 'settings', 'raisehand', 'videoquality', 
-                        'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts', 
-                        'tileview', 'videobackgroundblur', 'download', 'help', 
-                        'mute-everyone', 'security'
-                      ]
-                    }}
-                    interfaceConfigOverwrite={{
-                      TOOLBAR_BUTTONS: [
-                        'microphone', 'camera', 'closedcaptions', 'desktop', 
-                        'fullscreen', 'fodeviceselection', 'hangup', 'profile', 
-                        'chat', 'recording', 'livestreaming', 'etherpad', 
-                        'sharedvideo', 'settings', 'raisehand', 'videoquality', 
-                        'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts', 
-                        'tileview', 'videobackgroundblur', 'download', 'help', 
-                        'mute-everyone', 'security'
-                      ],
-                      SETTINGS_SECTIONS: ['devices', 'language', 'moderator', 'profile', 'calendar'],
-                      SHOW_JITSI_WATERMARK: false,
-                      SHOW_WATERMARK_FOR_GUESTS: false,
-                      DEFAULT_BACKGROUND: '#3c3c3c',
-                      DEFAULT_LOCAL_DISPLAY_NAME: 'Me',
-                      DEFAULT_REMOTE_DISPLAY_NAME: 'User',
-                      PROVIDER_NAME: 'EduConnect'
-                    }}
-                    getIFrameRef={(iframeRef) => { 
-                        iframeRef.style.height = '100%'; 
-                        iframeRef.style.width = '100%';
-                        
-                        // Set attributes for camera and microphone access
-                        if (iframeRef.setAttribute) {
-                          iframeRef.setAttribute('allow', 'camera; microphone; display-capture; autoplay; clipboard-write; encrypted-media');
-                        }
-                    }}
-                    onApiReady={(api) => {
-                      jitsiApiRef.current = api;
-                      
-                      // Try to get access to local tracks through the API
-                      api.addEventListener('videoConferenceJoined', () => {
-                        try {
-                          // Check if we can access the video
-                          console.log('Video conference joined, attempting to access tracks');
-                          
-                          // Check if the iframe has loaded successfully
-                          const iframe = document.querySelector('iframe[allow*="camera"]');
-                          if (iframe) {
-                            console.log('Jitsi iframe detected, face analysis should work');
-                          }
-                          
-                          // Automatically enable face analysis if in video mode
-                          if (isVideoCall && !isAnalysisEnabled && !isVideoOff) {
-                            setTimeout(() => {
-                              setIsAnalysisEnabled(true);
-                              startFaceAnalysis();
-                            }, 2000);
-                          }
-                        } catch (error) {
-                          console.error('Error in video conference joined handler:', error);
-                        }
-                      });
-                    }}
+                <>
+                  <VideoCall
+                    meetingId={currentMeetingId!}
+                    userName={currentUser.name}
+                    onEndCall={endCall}
+                    isMuted={isMuted}
+                    isVideoOff={isVideoOff}
+                    onToggleMute={toggleMute}
+                    onToggleVideo={toggleVideo}
                   />
-                  
-                  {/* Face analysis overlay */}
-                  {isAnalysisEnabled && faceAnalysis && (
-                    <div className="absolute top-4 right-4 bg-black bg-opacity-70 rounded-lg p-4 text-white shadow-lg max-w-xs">
-                      <h3 className="text-sm font-semibold mb-2 flex items-center">
-                        <Activity className="h-4 w-4 mr-2" />
-                        Face Analysis
-                      </h3>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span>Emotion:</span>
-                          <span className="font-medium">
-                            {getEmotionEmoji(faceAnalysis.emotion.dominant)} {faceAnalysis.emotion.dominant}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Attention:</span>
-                          <span className={`font-medium ${faceAnalysis.isAttentive ? 'text-green-400' : 'text-yellow-400'}`}>
-                            {faceAnalysis.isAttentive ? 'Attentive' : 'Distracted'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>People:</span>
-                          <span className="font-medium flex items-center">
-                            <Users className="h-3 w-3 mr-1" />
-                            {faceAnalysis.peopleCount}
-                          </span>
-            </div>
-                        <div className="flex justify-between">
-                          <span>Age Range:</span>
-                          <span className="font-medium">
-                            {faceAnalysis.demographics.ageRange}
-                          </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-                  {/* Analysis enabled but no face detected */}
-                  {isAnalysisEnabled && !faceAnalysis && (
-                    <div className="absolute top-4 right-4 bg-yellow-600 bg-opacity-80 rounded-lg p-3 text-white shadow-lg text-xs flex items-center">
-                      <AlertTriangle className="h-4 w-4 mr-2" />
-                      No face detected
-                    </div>
+                  {currentMeetingId && (
+                    <button
+                      onClick={handleShare}
+                      className="absolute top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-blue-700 transition-colors"
+                    >
+                      <Share2 className="h-5 w-5" />
+                      <span>Share Link</span>
+                    </button>
                   )}
-                </div>
+                </>
               ) : (
                 <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
                   <div className="text-center text-white">
@@ -792,31 +630,8 @@ const Chat = () => {
                     <div className="text-2xl font-medium">{selectedUser?.name}</div>
                     <div className="text-gray-400 mt-2">Audio Call</div>
                   </div>
-        </div>
-      )}
-
-              <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4">
-                <button 
-                  onClick={toggleMute}
-                  className={`p-5 rounded-full ${isMuted ? 'bg-red-500' : 'bg-gray-700'} text-white shadow-lg hover:opacity-90 transition-opacity duration-200`}
-                >
-                  {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-                </button>
-                {isVideoCall && (
-                  <button 
-                    onClick={toggleVideo}
-                    className={`p-5 rounded-full ${isVideoOff ? 'bg-red-500' : 'bg-gray-700'} text-white shadow-lg hover:opacity-90 transition-opacity duration-200`}
-                  >
-                    {isVideoOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
-                  </button>
-            )}
-            <button 
-                  onClick={endCall}
-                  className="p-5 rounded-full bg-red-500 text-white shadow-lg hover:opacity-90 transition-opacity duration-200"
-            >
-              <X className="h-6 w-6" />
-            </button>
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

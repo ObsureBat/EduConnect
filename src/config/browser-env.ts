@@ -1,8 +1,7 @@
 interface BrowserEnv {
-  VITE_AWS_REGION: any;
+  VITE_AWS_REGION: string;
   VITE_AWS_ACCESS_KEY_ID: string;
   VITE_AWS_SECRET_ACCESS_KEY: string;
-  VITE_AWS_ACCOUNT_ID?: string;
   
   // S3 Buckets
   VITE_AWS_S3_BUCKET: any;
@@ -44,10 +43,9 @@ interface BrowserEnv {
 }
 
 export const browserEnv: BrowserEnv = {
-  VITE_AWS_REGION: import.meta.env.VITE_AWS_REGION,
+  VITE_AWS_REGION: import.meta.env.VITE_AWS_REGION || 'us-east-1',
   VITE_AWS_ACCESS_KEY_ID: import.meta.env.VITE_AWS_ACCESS_KEY_ID || '',
   VITE_AWS_SECRET_ACCESS_KEY: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY || '',
-  VITE_AWS_ACCOUNT_ID: import.meta.env.VITE_AWS_ACCOUNT_ID,
   
   // S3 Buckets
   VITE_AWS_S3_BUCKET: import.meta.env.VITE_AWS_S3_BUCKET,
@@ -86,4 +84,4 @@ export const browserEnv: BrowserEnv = {
   // Application Settings
   VITE_APP_NAME: import.meta.env.VITE_APP_NAME || 'EduConnect',
   VITE_DEFAULT_LANGUAGE: import.meta.env.VITE_DEFAULT_LANGUAGE || 'en'
-}; 
+};

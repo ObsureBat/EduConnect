@@ -1,11 +1,13 @@
 import { browserEnv } from './browser-env';
 
+const credentials = {
+  accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID || '',
+  secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY || ''
+};
+
 export const awsConfig = {
   region: browserEnv.VITE_AWS_REGION,
-  credentials: {
-    accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY || ''
-  },
+  credentials,
   
   s3: {
     bucketName: browserEnv.VITE_AWS_S3_BUCKET,

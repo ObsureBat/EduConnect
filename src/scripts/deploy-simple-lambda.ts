@@ -88,7 +88,7 @@ async function zipLambdaFunction(sourceFile: string, functionName: string): Prom
       resolve(zipFilePath);
     });
     
-    archive.on('error', (err) => {
+    archive.on('error', (err: Error) => {
       reject(err);
     });
     

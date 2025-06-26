@@ -27,10 +27,14 @@ rm -rf node_modules package-lock.json || handle_error "Failed to clean up previo
 
 # Install dependencies
 log "Installing dependencies..."
-npm ci || handle_error "Failed to install dependencies"
+npm install --no-audit || handle_error "Failed to install dependencies"
+
+# Fix vulnerabilities
+log "Fixing vulnerabilities..."
+npm audit fix || log "Some vulnerabilities require manual review"
 
 # Build the application
 log "Building application..."
-npm run build || handle_error "Failed to build application"
+NODE_ENV=production npm run build || handle_error "Failed to build application"
 
 log "Build completed successfully!" 

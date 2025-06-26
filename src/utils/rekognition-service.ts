@@ -2,7 +2,8 @@ import {
   RekognitionClient, 
   DetectFacesCommand, 
   DetectFacesCommandInput,
-  RekognitionServiceException
+  RekognitionServiceException,
+  FaceDetail
 } from '@aws-sdk/client-rekognition';
 import { browserEnv } from '../config/browser-env';
 import toast from 'react-hot-toast';
@@ -39,12 +40,10 @@ if (!isRekognitionEnabled) {
 /**
  * Capture a video frame from a video element
  * @param videoElement The HTML video element to capture from
- * @param jitsiApi Optional Jitsi API instance to try accessing video through the API
  * @returns Promise resolving to Base64 encoded image data or null if capture failed
  */
 export const captureVideoFrame = async (
-  videoElement: HTMLVideoElement | null, 
-  jitsiApi?: any
+  videoElement: HTMLVideoElement | null
 ): Promise<string | null> => {
   try {
     // Enhanced debugging
@@ -53,53 +52,25 @@ export const captureVideoFrame = async (
     // Wait a moment to ensure video elements are fully loaded
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    // First try direct DOM access to the local video element that should be visible in Jitsi
-    // Use a more comprehensive selector to find the local video in Jitsi's DOM structure
-    const jitsiLocalVideoSelectors = [
-      '.jitsi-local-video video', 
-      'video[id*="localVideo"]', 
-      '.local-video video',
-      '#localVideo_container video',
-      '[data-testid="local-video"] video',
-      '#largeVideo'
+    // Try to find the local video element from AWS Chime
+    const chimeLocalVideoSelectors = [
+      'video[data-testid="local-video"]',
+      'video[data-testid="local-video-tile"]',
+      'video[data-testid="local-video-preview"]',
+      'video[data-testid="local-video-element"]'
     ];
     
     // Try each selector
-    for (const selector of jitsiLocalVideoSelectors) {
-      const jitsiLocalVideo = document.querySelector(selector) as HTMLVideoElement;
-      if (jitsiLocalVideo && jitsiLocalVideo.readyState >= 2 && jitsiLocalVideo.videoWidth > 0) {
-        console.log(`Found Jitsi local video element with selector '${selector}':`, {
-          id: jitsiLocalVideo.id,
-          width: jitsiLocalVideo.videoWidth,
-          height: jitsiLocalVideo.videoHeight,
-          readyState: jitsiLocalVideo.readyState
+    for (const selector of chimeLocalVideoSelectors) {
+      const localVideo = document.querySelector(selector) as HTMLVideoElement;
+      if (localVideo && localVideo.readyState >= 2 && localVideo.videoWidth > 0) {
+        console.log(`Found Chime local video element with selector '${selector}':`, {
+          id: localVideo.id,
+          width: localVideo.videoWidth,
+          height: localVideo.videoHeight,
+          readyState: localVideo.readyState
         });
-        return captureVideoToBase64(jitsiLocalVideo);
-      }
-    }
-    
-    // If direct selectors fail, try to check if Jitsi API is available and use it
-    if (jitsiApi) {
-      console.log('Attempting to get local video through Jitsi API');
-      
-      try {
-        // Get video mute status from Jitsi API
-        if (typeof jitsiApi.isVideoMuted === 'function') {
-          const isVideoMuted = await jitsiApi.isVideoMuted();
-          if (isVideoMuted) {
-            console.log('Video is currently muted in Jitsi API, face analysis may not work');
-            // Optionally notify the caller that video is muted
-            return null;
-          }
-        }
-        
-        // If Jitsi API has participants info, try to get the local participant
-        if (typeof jitsiApi.getParticipantsInfo === 'function') {
-          const participants = await jitsiApi.getParticipantsInfo();
-          console.log('Jitsi participants:', participants);
-        }
-      } catch (apiError) {
-        console.warn('Error accessing Jitsi API methods:', apiError);
+        return captureVideoToBase64(localVideo);
       }
     }
     
@@ -121,66 +92,6 @@ export const captureVideoFrame = async (
       }
     }
     
-    // Try a fallback method - use a direct screenshot of the main area where video would be
-    try {
-      console.log('Attempting canvas capture of video region as fallback');
-      
-      // Find the element that likely contains the video using multiple possible selectors
-      const videoContainerSelectors = [
-        '.jitsi-meeting-container', 
-        '.video-container', 
-        '#largeVideoContainer',
-        '.filmstrip-only',
-        '#filmstripContainer'
-      ];
-      
-      let videoContainer: HTMLElement | null = null;
-      
-      for (const selector of videoContainerSelectors) {
-        videoContainer = document.querySelector(selector) as HTMLElement;
-        if (videoContainer && videoContainer.offsetWidth > 0 && videoContainer.offsetHeight > 0) {
-          console.log(`Found video container with selector '${selector}'`);
-          break;
-        }
-      }
-      
-      if (videoContainer) {
-        // Create a canvas and try to screenshot that element
-        const canvas = document.createElement('canvas');
-        canvas.width = videoContainer.clientWidth || 640;
-        canvas.height = videoContainer.clientHeight || 480;
-        
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          
-          // Since we can't directly draw an HTMLElement to canvas without html2canvas library,
-          // we'll look for any video elements inside the container and draw those
-          const containerVideos = videoContainer.querySelectorAll('video');
-          if (containerVideos.length > 0) {
-            for (const video of containerVideos) {
-              if (video.readyState >= 2 && video.videoWidth > 0) {
-                try {
-                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                  console.log('Drew video from container to canvas');
-                  
-                  const imageData = canvas.toDataURL('image/jpeg', 0.8);
-                  const base64Data = imageData.replace(/^data:image\/(png|jpeg);base64,/, '');
-                  console.log('Container video capture successful, base64 length:', base64Data.length);
-                  return base64Data;
-                } catch (drawError) {
-                  console.warn('Error drawing video to canvas:', drawError);
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (canvasError) {
-      console.warn('Canvas capture fallback failed:', canvasError);
-    }
-    
     // If we got here and have the provided video element, try it as last resort
     if (videoElement && videoElement.readyState >= 2) {
       console.log('Using provided video element as last resort');
@@ -188,7 +99,6 @@ export const captureVideoFrame = async (
     }
     
     console.warn('All video capture methods failed, no valid video source found');
-    // Return null instead of a simulated frame to indicate failure
     return null;
   } catch (error) {
     console.error('Error capturing video frame:', error);
@@ -305,208 +215,128 @@ const base64ToArrayBuffer = (base64: string): Uint8Array => {
 })();
 
 /**
- * Analyze a face in an image using AWS Rekognition
- * @param imageData Base64 encoded image data
- * @returns Face analysis results or null if analysis failed
+ * Analyze face using AWS Rekognition
+ * @param base64Image Base64 encoded image data
+ * @returns Promise resolving to face details or null if analysis failed
  */
-export const analyzeFace = async (imageData: string) => {
-  if (!imageData) {
-    console.error('No image data provided for analysis');
-    return null;
-  }
-  
-  // Check if Rekognition is enabled
+export const analyzeFace = async (base64Image: string): Promise<FaceDetail[] | null> => {
   if (!isRekognitionEnabled) {
-    console.warn('AWS Rekognition is disabled. Enable it in environment variables.');
+    console.warn('AWS Rekognition is disabled');
     return null;
   }
-  
-  // Check if AWS credentials are available
-  if (!browserEnv.VITE_AWS_ACCESS_KEY_ID || !browserEnv.VITE_AWS_SECRET_ACCESS_KEY) {
-    console.error('AWS credentials not configured. Rekognition analysis unavailable.');
-    toast.error('AWS credentials not configured');
-    return null;
-  }
-  
+
   try {
-    // Convert base64 to binary using browser-compatible method
-    const imageBytes = base64ToArrayBuffer(imageData);
-    
-    // Log image size for debugging
-    console.log(`Processing image for analysis: ${imageBytes.length} bytes`);
-    
-    // If image is too small, it's likely not a valid frame
-    if (imageBytes.length < 1000) {
-      console.warn('Image is too small, likely not a valid video frame');
-      return null;
-    }
-    
-    const params: DetectFacesCommandInput = {
+    const client = new RekognitionClient({
+      region: browserEnv.VITE_AWS_REGION,
+      credentials: {
+        accessKeyId: browserEnv.VITE_AWS_ACCESS_KEY_ID,
+        secretAccessKey: browserEnv.VITE_AWS_SECRET_ACCESS_KEY
+      }
+    });
+
+    const command = new DetectFacesCommand({
       Image: {
-        Bytes: imageBytes
+        Bytes: Buffer.from(base64Image, 'base64')
       },
       Attributes: ['ALL']
-    };
-    
-    console.log('Sending request to AWS Rekognition...');
-    const startTime = performance.now();
-    const command = new DetectFacesCommand(params);
-    const response = await rekognitionClient.send(command);
-    const endTime = performance.now();
-    
-    // Log success message with timing information
-    console.log(`Rekognition analysis complete in ${Math.round(endTime - startTime)}ms. Faces detected:`, response.FaceDetails?.length || 0);
-    
-    // Log the first face details for debugging (with sensitive data redacted)
-    if (response.FaceDetails && response.FaceDetails.length > 0) {
-      const firstFace = response.FaceDetails[0];
-      console.log('Face details sample:', {
-        confidence: firstFace.Confidence,
-        hasEmotions: !!firstFace.Emotions?.length,
-        hasAgeRange: !!firstFace.AgeRange,
-        emotionCount: firstFace.Emotions?.length || 0
-      });
-    }
-    
-    return response.FaceDetails;
+    });
+
+    const response = await client.send(command);
+    return response.FaceDetails || null;
   } catch (error) {
-    // Improved error handling with detailed logging
-    console.error('Error analyzing face with Rekognition:', error);
-    
-    if (error instanceof RekognitionServiceException) {
-      console.error('Rekognition Service Exception Details:', {
-        name: error.name,
-        message: error.message,
-        $fault: error.$fault,
-        $metadata: error.$metadata,
-        statusCode: error.$metadata?.httpStatusCode
-      });
-      
-      // Show more specific error messages based on error type
-      if (error.name === 'AccessDeniedException') {
-        toast.error('AWS Rekognition access denied. Check IAM permissions.');
-      } else if (error.name === 'InvalidParameterException') {
-        toast.error('Invalid image format for Rekognition.');
-      } else if (error.name === 'ImageTooLargeException') {
-        toast.error('Image too large for analysis. Try reducing resolution.');
-      } else if (error.name === 'ProvisionedThroughputExceededException') {
-        toast.error('AWS Rekognition rate limit exceeded. Try again later.');
-      } else if (error.name === 'ThrottlingException') {
-        toast.error('AWS Rekognition throttled. Try again later.');
-      } else if (error.message.includes('Access Denied')) {
-        toast.error('Access denied. Verify AWS credentials and permissions.');
-      } else if (error.name === 'InvalidImageFormatException') {
-        toast.error('Invalid image format. Ensure the video frame is valid.');
-      } else {
-        toast.error(`Rekognition error: ${error.name}`);
-      }
-    } else if (error instanceof Error) {
-      // Handle network or other errors
-      if (error.message.includes('NetworkError') || 
-          error.message.includes('Failed to fetch') ||
-          error.message.includes('Network request failed')) {
-        toast.error('Network error. Check your internet connection.');
-      } else {
-        toast.error(`Error: ${error.message}`);
-      }
-    } else {
-      toast.error('Unknown error analyzing face');
-    }
-    
+    console.error('Error analyzing face:', error);
     return null;
   }
 };
 
 /**
- * Get a summary of emotions from face details
- * @param faceDetails The face details from Rekognition
- * @returns An object with the dominant emotion and emotion scores
+ * Get emotion summary from face details
+ * @param faceDetails Face details from Rekognition
+ * @returns Object containing dominant emotion and emotion scores
  */
-export const getEmotionSummary = (faceDetails: any) => {
-  if (!faceDetails || !faceDetails[0] || !faceDetails[0].Emotions) {
-    return { dominant: 'unknown', scores: {} };
+export const getEmotionSummary = (faceDetails: FaceDetail[] | null) => {
+  if (!faceDetails || faceDetails.length === 0) {
+    return {
+      dominant: 'unknown',
+      scores: {}
+    };
   }
-  
-  const emotions = faceDetails[0].Emotions;
-  let dominant = 'neutral';
-  let highestScore = 0;
-  
+
+  const emotions = faceDetails[0].Emotions || [];
   const scores: Record<string, number> = {};
-  
-  emotions.forEach((emotion: any) => {
-    const emotionName = emotion.Type.toLowerCase();
-    const score = emotion.Confidence;
-    
-    scores[emotionName] = score;
-    
-    if (score > highestScore) {
-      highestScore = score;
-      dominant = emotionName;
+  let dominantEmotion = 'unknown';
+  let maxConfidence = 0;
+
+  emotions.forEach(emotion => {
+    if (emotion.Type && emotion.Confidence) {
+      scores[emotion.Type.toLowerCase()] = emotion.Confidence;
+      if (emotion.Confidence > maxConfidence) {
+        maxConfidence = emotion.Confidence;
+        dominantEmotion = emotion.Type.toLowerCase();
+      }
     }
   });
-  
+
   return {
-    dominant,
+    dominant: dominantEmotion,
     scores
   };
 };
 
 /**
- * Check if a person is attentive based on head pose and eye direction
- * @param faceDetails The face details from Rekognition
- * @returns Boolean indicating if the person appears attentive
+ * Check if a person is attentive based on face details
+ * @param faceDetails Face details from Rekognition
+ * @returns Boolean indicating if the person is attentive
  */
-export const isPersonAttentive = (faceDetails: any): boolean => {
-  if (!faceDetails || !faceDetails[0]) {
+export const isPersonAttentive = (faceDetails: FaceDetail[] | null): boolean => {
+  if (!faceDetails || faceDetails.length === 0) {
     return false;
   }
-  
-  const face = faceDetails[0];
-  
-  // Check if eyes are open
-  const leftEyeOpen = face.EyesOpen?.Value === true && face.EyesOpen?.Confidence > 90;
-  const rightEyeOpen = face.EyesOpen?.Value === true && face.EyesOpen?.Confidence > 90;
-  
-  // Check if head pose is roughly forward-facing
-  // Allow for some natural movement (within ±20 degrees)
-  const headPose = face.Pose;
-  const isHeadForward = 
-    Math.abs(headPose?.Pitch || 0) < 20 && 
-    Math.abs(headPose?.Roll || 0) < 20 && 
-    Math.abs(headPose?.Yaw || 0) < 20;
-  
-  // Person is considered attentive if their eyes are open and they're facing forward
-  return (leftEyeOpen || rightEyeOpen) && isHeadForward;
-};
 
-/**
- * Get a count of people in the frame
- * @param faceDetails The face details from Rekognition
- * @returns Number of detected faces
- */
-export const getPeopleCount = (faceDetails: any): number => {
-  if (!faceDetails) return 0;
-  return faceDetails.length;
-};
-
-/**
- * Extract demographic information from face analysis
- * @param faceDetails The face details from Rekognition
- * @returns Object with age range and gender information
- */
-export const getDemographicInfo = (faceDetails: any) => {
-  if (!faceDetails || !faceDetails[0]) {
-    return { ageRange: 'unknown', gender: 'unknown' };
+  const pose = faceDetails[0].Pose;
+  if (!pose) {
+    return false;
   }
-  
+
+  // Consider person attentive if looking roughly at the camera
+  // (pitch, yaw, and roll are close to 0)
+  const isLookingAtCamera = 
+    Math.abs(pose.Pitch || 0) < 20 &&
+    Math.abs(pose.Yaw || 0) < 20 &&
+    Math.abs(pose.Roll || 0) < 20;
+
+  return isLookingAtCamera;
+};
+
+/**
+ * Get the number of people in the frame
+ * @param faceDetails Face details from Rekognition
+ * @returns Number of people detected
+ */
+export const getPeopleCount = (faceDetails: FaceDetail[] | null): number => {
+  return faceDetails?.length || 0;
+};
+
+/**
+ * Get demographic information from face details
+ * @param faceDetails Face details from Rekognition
+ * @returns Object containing age range and gender
+ */
+export const getDemographicInfo = (faceDetails: FaceDetail[] | null) => {
+  if (!faceDetails || faceDetails.length === 0) {
+    return {
+      ageRange: 'Unknown',
+      gender: 'Unknown'
+    };
+  }
+
   const face = faceDetails[0];
+  const ageRange = face.AgeRange
+    ? `${face.AgeRange.Low}-${face.AgeRange.High}`
+    : 'Unknown';
   
-  const ageRange = face.AgeRange 
-    ? `${face.AgeRange.Low}-${face.AgeRange.High}` 
-    : 'unknown';
-    
-  const gender = face.Gender?.Value?.toLowerCase() || 'unknown';
-  
+  const gender = face.Gender?.Value || 'Unknown';
+
   return {
     ageRange,
     gender

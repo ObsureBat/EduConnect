@@ -1,3 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: educonnect-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: 'educonnect'
+        static_configs:
+          - targets: ['localhost:80']
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: educonnect-secrets
+type: Opaque
+data:
+  AWS_ACCESS_KEY_ID: 
+  AWS_SECRET_ACCESS_KEY: 
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,7 +27,7 @@ metadata:
   labels:
     app: educonnect
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: educonnect
@@ -13,29 +35,148 @@ spec:
     metadata:
       labels:
         app: educonnect
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
     spec:
       containers:
       - name: educonnect
-        image: educonnect:latest
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/educonnect:latest
+        imagePullPolicy: Never
         ports:
         - containerPort: 80
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: VITE_APP_TITLE
+          value: "EduConnect"
+        - name: VITE_AWS_REGION
+          value: ""
+        - name: VITE_AWS_ACCOUNT_ID
+          value: ""
+        - name: VITE_AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: educonnect-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: VITE_AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: educonnect-secrets
+              key: AWS_SECRET_ACCESS_KEY
         resources:
           limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
             cpu: "0.5"
             memory: "512Mi"
-          requests:
-            cpu: "0.2"
-            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: nginx-logs
+          mountPath: /var/log/nginx
+      volumes:
+      - name: nginx-logs
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: educonnect
+  labels:
+    app: educonnect
 spec:
   selector:
     app: educonnect
   ports:
   - port: 80
     targetPort: 80
-  type: LoadBalancer 
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus/prometheus.yml
+          subPath: prometheus.yml
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: educonnect-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+  type: LoadBalancer
